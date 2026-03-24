@@ -1,0 +1,460 @@
+#ifndef __AS5048_H
+#define __AS5048_H
+
+#include "main.h"
+
+#define AS5048_NUMBER 2  
+
+
+
+#define SPI_CMD_READ				0x4000 // flag indicating read attempt
+#define SPI_CMD_WRITE				0x8000 // flag indicating write attempt
+#define SPI_NOP							0x0000//B0000000000000000 No operation dummy information
+#define SPI_REG_AGC					0x7ffd // agc register when using SPI 
+#define SPI_REG_MAG					0x7ffe // magnitude register when using SPI
+#define SPI_REG_DATA				0xffff // data register when using SPI
+#define SPI_REG_CLRERR			0x4001 // clear error register when using SPI
+#define SPI_REG_ZEROPOS_HI	0x0016 // zero position register high byte
+#define SPI_REG_ ZEROPOS_LO	0x0017 // zero position register low byte
+
+// 锟斤拷锟斤拷酶锟斤拷锟脚夹ｏ拷锟轿伙拷母锟斤拷锟斤拷拇锟斤拷锟斤拷锟饺≈革拷锟�
+#define CMD_ANGLE            0xffff
+#define CMD_AGC              0x7ffd
+#define CMD_MAG              0x7ffe
+#define CMD_CLAER            0x4001
+#define CMD_NOP              0xc000
+
+
+void AS5048_init(int AS5048_ID,SPI_HandleTypeDef *spi,GPIO_TypeDef *GPIOx,uint16_t GPIO_Pin);
+uint16_t AS5048_Read(const int AS5048_ID, uint16_t registerAddress);
+void AS5048_getREGValue(const int AS5048_ID);
+void AS5048_dataUpdate(const int AS5048_ID);
+/**
+ * @brief AS5048_STRUCT
+ */
+typedef struct {
+  
+	
+	const int AS5048_ID;
+  SPI_HandleTypeDef *spi_number;       ///< SPI
+	GPIO_TypeDef *GPIOx; ///<GPIO_CS
+	uint16_t GPIO_Pin; ///<GPIO_PIN_CS
+  int    angle;
+	int    last_angle; //  cc_direction
+	int    total_angle;
+	int    cirle;
+	int    delta_dis;
+
+} AS5048;
+
+/**
+ * @brief AS5048_OBJECT_
+ */
+
+extern AS5048 AS5048s[AS5048_NUMBER];
+
+#endif//float tt_x_real = 0;
+//float tt_y_real = 0;
+
+
+int add = 0;
+int times = 0;
+
+int fputc(int ch, FILE *f){
+	//HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&ch, 1);
+  HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, 0xffff);
+  return ch;
+}
+
+typedef struct struct_message
+{
+  uint8_t header;
+  uint8_t parity;
+  uint8_t data[6];
+  uint8_t footer;
+} DataPacket;
+
+DataPacket DataRe;
+uint8_t USART_FLAG = 0;
+
+
+uint8_t USART1_RX_BUF[100]; 
+uint16_t USART1_RX_STA = 0; 
+uint8_t aRxBuffer1[1];		  
+UART_HandleTypeDef UART1_Handler; 
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+
+/* USER CODE BEGIN PV */
+uint8_t rcv_buf[64] = {0};
+int rcv_err = 3;
+char mpu_buff[128];
+uint16_t rxclear = 0;
+int rcv_flag = 0;
+int rst_temp = 0;
+
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+void SystemClock_Config(void);
+/* USER CODE BEGIN PFP */
+
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+
+/* USER CODE END 0 */
+
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
+  /* USER CODE BEGIN 1 */
+
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
+  SystemClock_Config();
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_CAN1_Init();
+  MX_TIM11_Init();
+  MX_TIM13_Init();
+  MX_TIM14_Init();
+  MX_USART1_UART_Init();
+  MX_SPI1_Init();
+  MX_SPI2_Init();
+  /* USER CODE BEGIN 2 */
+	
+	__HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE); 
+	HAL_UART_Receive_DMA(&huart1, rcv_buf, 8);	
+	
+	AS5048_init(1,&hspi1,GPIOA,GPIO_PIN_4);
+	AS5048_init(2,&hspi2,GPIOB,GPIO_PIN_12);
+	
+	mpu_data[0].cali = 1; // �Ȳ���
+	mpu_data[0].vel[0] = 0;
+	mpu_data[0].vel[1] = 0;
+   mpu_data[0].REAL_YAW_SET = 0;
+	 mpu_data[0].REAL_YAW_MARK = 0;
+		
+	can_filter_init();
+	IM_TEST_initialize();
+	
+	HAL_TIM_Base_Start_IT(&htim13);
+	HAL_TIM_Base_Start_IT(&htim14);
+	HAL_TIM_Base_Start_IT(&htim11);
+
+		
+//	SelfCalibration();
+	
+//	HAL_Delay(100);
+	
+
+//  mpu_data[0].PITCH_ANGLE_BEG = mpu_data[0].PITCH_ANGLE;
+//  mpu_data[0].YAW_ANGLE_BEG =   mpu_data[0].YAW_ANGLE;
+//  mpu_data[0].ROLL_ANGLE_BEG =  mpu_data[0].ROLL_ANGLE;
+//  
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+
+	
+	while (1)
+  {
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+
+  }
+  /* USER CODE END 3 */
+}
+
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 25;
+  RCC_OscInitStruct.PLL.PLLN = 336;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/* USER CODE BEGIN 4 */
+//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) //已弃用
+//{
+//			while  (huart->Instance == USART1)
+//		{
+//				USART1_RX_BUF[USART1_RX_STA] = aRxBuffer1[0];
+//				if (USART1_RX_STA == 0 && USART1_RX_BUF[USART1_RX_STA] != 0x0F) 	
+//				{			
+//					HAL_UART_Receive_DMA(&huart1,aRxBuffer1,1);	
+//					break; //
+//				}
+//				USART1_RX_STA++;
+//			HAL_UART_Receive_DMA(&huart1,aRxBuffer1,1);
+//			if (USART1_RX_STA > 100) USART1_RX_STA = 0;  //
+//			if (USART1_RX_BUF[0] == 0x0F && USART1_RX_BUF[7] == 0xAA && USART1_RX_STA == 8)	//检测包头包尾以及数据包长度
+//			{
+//				DATARELOAD(USART1_RX_BUF);
+//				receivefactor[1]=1;
+//				USART1_RX_STA = 0;
+//			}
+//			else if(!(USART1_RX_BUF[0] == 0x0F && USART1_RX_BUF[7] == 0xAA) && USART1_RX_STA == 8){
+//				for(int i=0;i<8;i++)
+//					USART1_RX_BUF[i] = 0;
+//				USART1_RX_STA = 0;
+//			}
+//			break;
+//		}
+//}
+
+//接收函数v2 0602更新后不再使用
+//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
+//	if(huart->Instance == USART1){
+//		if(0x0F==rcv_buf[0]&&0xAA==rcv_buf[7]){
+//			DATARELOAD(rcv_buf);
+//			if(rcv_err>0) rcv_err --;
+//		}
+//		for(int i=0;i<8;i++){
+//			rcv_buf[i]=0;
+//		}
+//	}
+//}
+
+//0602更新 DMA+空闲中断
+void Rcv_IdleCallback(void){
+	/* 判断空闲中断发生 */
+	if(__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) == SET){
+		/* 清除空闲中断标志位，暂停串口DMA传输 */
+		__HAL_UART_CLEAR_IDLEFLAG(&huart1);
+		HAL_UART_DMAStop(&huart1);
+		/* 接收完成标志位 */
+		rcv_flag = 1;
+	}
+}
+
+int Rcv_DealData(void){
+	if(1==rcv_flag){
+		/* 数据处理 */
+		if(0x0F==rcv_buf[0]&&0xAA==rcv_buf[7]){
+			DATARELOAD(rcv_buf);
+		}else if(0xBB==rcv_buf[0]&&0xCC==rcv_buf[7]){
+			HAL_GPIO_WritePin(RST_CTRL_GPIO_Port,RST_CTRL_Pin,GPIO_PIN_SET);
+			HAL_Delay(500);
+			HAL_GPIO_WritePin(RST_CTRL_GPIO_Port,RST_CTRL_Pin,GPIO_PIN_RESET);
+			DATARELOAD(rcv_buf);
+		}
+		for(int i=0;i<8;i++){
+			rcv_buf[i]=0;
+		}
+		/* 恢复标志位 */
+		rcv_flag = 0;
+		/* 再次发起下一次的串口DMA接收 */
+		HAL_UART_Receive_DMA(&huart1, rcv_buf, 8);
+		return 0;
+	}else{
+		return -1;
+	}
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim == (&htim14)){
+			//if(rcv_err>0){
+			//ClearUARTErrors(USART1);//清除串口错误标志 0602更新后不再使用
+			//}
+			
+    }
+		
+		if (htim == (&htim13)){
+//			arm_fir_f32_lp();
+			
+		 }
+		 
+		 if (htim == (&htim11)){
+			
+			 if(mpu_data[0].cali == 1){
+//					rtU.X_ACCIN  = mpu_data[0].acc_cali[0];
+//					rtU.Y_ACCIN  = mpu_data[0].acc_cali[1];
+				 
+					if(times >= 500){
+						
+						add++;
+						AS5048_getREGValue(1);
+					//	HAL_Delay(1);
+						AS5048_dataUpdate(1);	
+				//		HAL_Delay(1);
+						AS5048_getREGValue(2);
+				//		HAL_Delay(1);
+						AS5048_dataUpdate(2);	
+				//		HAL_Delay(1);
+						
+						mpu_data[0].REAL_YAW = mpu_data[0].YAW_ANGLE;// - mpu_data[0].REAL_YAW_SET + mpu_data[0].REAL_YAW_MARK ;
+
+            rtU.W1 = -AS5048s[1].delta_dis;
+            rtU.W2 = AS5048s[0].delta_dis;
+            rtU.DEG = mpu_data[0].REAL_YAW;
+						
+            mpu_data[0].Y_tt += rtY.YOUT ;//*0.014373;
+            mpu_data[0].X_tt += rtY.XOUT ;//*0.014373;
+						mpu_data[0].REAL_Y = mpu_data[0].Y_tt * 0.014373;
+						mpu_data[0].REAL_X = mpu_data[0].X_tt * 0.014373;
+						// x y yaw
+						
+						Rcv_DealData();
+						
+						if(add >= 50){
+//							if(1==rst_temp){
+//								HAL_GPIO_WritePin(RST_CTRL_GPIO_Port,RST_CTRL_Pin,GPIO_PIN_SET);
+//								HAL_GPIO_WritePin(RST_CTRL_GPIO_Port,RST_CTRL_Pin,GPIO_PIN_RESET);
+//								rst_temp = 0;
+//							}
+              memset(mpu_buff, 0, 128);//SPI调试输出
+              int mpu_len = sprintf(mpu_buff,"bc a1=%.2fdeg a2=%.2fdeg d1=%d d2=%d\r\n",AS5048s[0].angle * 360.0f / 16384.0f,AS5048s[1].angle * 360.0f / 16384.0f,AS5048s[0].delta_dis,AS5048s[1].delta_dis);
+							HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&mpu_buff, mpu_len);
+							//printf("%f %f %f\r\n",mpu_data[0].REAL_X,mpu_data[0].REAL_Y,mpu_data[0].REAL_YAW);
+						  add = 0;
+						}
+						
+					}else{
+						
+							AS5048_getREGValue(1);
+						//	HAL_Delay(1);
+							AS5048_dataUpdate(1);	
+					//		HAL_Delay(1);
+							AS5048_getREGValue(2);
+					//		HAL_Delay(1);
+							AS5048_dataUpdate(2);
+					  mpu_data[0].vel[0] = 0;
+				    mpu_data[0].vel[1] = 0;
+						times ++ ;
+					}
+
+				IM_TEST_step();
+			 			 
+		 }
+		}
+}
+
+void ClearUARTErrors(USART_TypeDef *USARTx) {
+    // 清除奇偶校验错误
+    if (USARTx->SR & USART_SR_PE) {
+        (void)USARTx->DR;
+    }
+    // 清除帧错误
+    if (USARTx->SR & USART_SR_FE) {
+        (void)USARTx->DR;
+    }
+    // 清除 noise error
+    if (USARTx->SR & USART_SR_NE) {
+        (void)USARTx->DR;
+    }
+    // 清除 overrun error
+    if (USARTx->SR & USART_SR_ORE) {
+        (void)USARTx->DR;
+    }
+    // 重新使能串口
+    USARTx->CR1 |= USART_CR1_UE;
+    // 重新使能错误中断
+    USARTx->CR3 |= USART_CR3_EIE;
+    // 重新使能接收超过FIFO阈值中断
+    USARTx->CR3 |= USART_CR3_RXFTIE;
+		// 重新打开串口接收
+		HAL_UART_Receive_DMA(&huart1,rcv_buf,8);
+}
+
+
+/* USER CODE END 4 */
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
+{
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
+  __disable_irq();
+  while (1)
+  {
+  }
+  /* USER CODE END Error_Handler_Debug */
+}
+
+#ifdef  USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
+  /* USER CODE BEGIN 6 */
+  /* User can add his own implementation to report the file name and line number,
+     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */
