@@ -1,0 +1,42 @@
+# =========================
+# Embedded / Keil build outputs
+# =========================
+
+# Keil target output folder (objects, browse info, dep, axf/hex/map)
+Prototype_04_407_VE_Matlab/type_04_407VE/MDK-ARM/type_04_407VE/
+
+# Keil build logs
+*.build_log.htm
+
+# Keil user/session layout files
+*.uvguix.*
+
+# Optional debug/cache artifacts
+Prototype_04_407_VE_Matlab/type_04_407VE/MDK-ARM/DebugConfig/
+
+# =========================
+# MATLAB / Simulink generated artifacts
+# =========================
+
+# Simulink build cache and generated code folders
+**/slprj/
+**/IM_TEST_ert_rtw/
+
+# Simulink autosave/cache artifacts
+*.asv
+*.slxc
+
+# =========================
+# Generic binary/temp files
+# =========================
+*.o
+*.obj
+*.d
+*.dep
+*.crf
+*.axf
+*.hex
+*.map
+*.lst
+*.bak
+*.tmp
