@@ -16,22 +16,39 @@
   ******************************************************************************
   */
 /* USER CODE END Header */
-/* Includes ------------------------------------------------------------------*/
+
 #include "main.h"
-#include "can.h"
+#include "gpio.h"
 #include "dma.h"
+#include "can.h"
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
-#include "gpio.h"
-
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
 #include "YIS130.h"
 #include "arm_math.h"
 #include "IM_TEST.h"
 #include "stdio.h"
 #include "AS5048.h"
+#include "odom_protocol.h"
+#include <math.h>
+
+extern CAN_HandleTypeDef hcan1;
+extern SPI_HandleTypeDef hspi1;
+extern SPI_HandleTypeDef hspi2;
+extern TIM_HandleTypeDef htim11;
+extern TIM_HandleTypeDef htim13;
+extern TIM_HandleTypeDef htim14;
+extern UART_HandleTypeDef huart1;
+
+void MX_GPIO_Init(void);
+void MX_DMA_Init(void);
+void MX_CAN1_Init(void);
+void MX_TIM11_Init(void);
+void MX_TIM13_Init(void);
+void MX_TIM14_Init(void);
+void MX_USART1_UART_Init(void);
+void MX_SPI1_Init(void);
+void MX_SPI2_Init(void);
 
 /* USER CODE END Includes */
 
@@ -44,7 +61,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-uint8_t receive_buff[8] = {0}; // init  
+uint8_t receive_buff[8] = {0}; // init
 int receivefactor[2];
 // header x_low x_high y y yaw yaw footer
 uint8_t tx_buff[255];
@@ -64,7 +81,7 @@ int add = 0;
 int times = 0;
 
 int fputc(int ch, FILE *f){
-	//HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&ch, 1);
+        //HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&ch, 1);
   HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, 0xffff);
   return ch;
 }
@@ -83,7 +100,7 @@ uint8_t USART_FLAG = 0;
 
 uint8_t USART1_RX_BUF[100]; 
 uint16_t USART1_RX_STA = 0; 
-uint8_t aRxBuffer1[1];		  
+uint8_t aRxBuffer1[1];            
 UART_HandleTypeDef UART1_Handler; 
 /* USER CODE END PD */
 
@@ -97,10 +114,23 @@ UART_HandleTypeDef UART1_Handler;
 /* USER CODE BEGIN PV */
 uint8_t rcv_buf[64] = {0};
 int rcv_err = 3;
-char mpu_buff[64];
+char mpu_buff[220];
 uint16_t rxclear = 0;
 int rcv_flag = 0;
 int rst_temp = 0;
+
+/* ODOM protocol variables */
+static uint8_t odom_seq = 0;
+static uint8_t odom_frame_buf[ODOM_STATE_FRAME_LEN];
+static float odom_dx_world_acc = 0.0f;
+static float odom_dy_world_acc = 0.0f;
+static float odom_dyaw_acc = 0.0f;
+static uint16_t odom_vel_ticks = 0;
+
+/* ODOM output rate: ticks between frames (ISR=20kHz, 200 ticks=10ms=100Hz) */
+#define ODOM_OUTPUT_TICKS 200
+/* ISR period in microseconds */
+#define ODOM_ISR_PERIOD_US 50
 
 /* USER CODE END PV */
 
@@ -152,43 +182,43 @@ int main(void)
   MX_SPI1_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
-	
-	__HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE); 
-	HAL_UART_Receive_DMA(&huart1, rcv_buf, 8);	
-	
-	AS5048_init(1,&hspi1,GPIOA,GPIO_PIN_4);
-	AS5048_init(2,&hspi2,GPIOB,GPIO_PIN_12);
-	
-	mpu_data[0].cali = 1; // 锟饺诧拷锟斤拷
-	mpu_data[0].vel[0] = 0;
-	mpu_data[0].vel[1] = 0;
-   mpu_data[0].REAL_YAW_SET = 0;
-	 mpu_data[0].REAL_YAW_MARK = 0;
-		
-	can_filter_init();
-	IM_TEST_initialize();
-	
-	HAL_TIM_Base_Start_IT(&htim13);
-	HAL_TIM_Base_Start_IT(&htim14);
-	HAL_TIM_Base_Start_IT(&htim11);
 
-		
-//	SelfCalibration();
-	
-//	HAL_Delay(100);
-	
+        __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
+        HAL_UART_Receive_DMA(&huart1, rcv_buf, 8);
+
+        AS5048_init(1,&hspi1,GPIOA,GPIO_PIN_4);
+        AS5048_init(2,&hspi2,GPIOB,GPIO_PIN_12);
+
+        mpu_data[0].cali = 1;
+        mpu_data[0].vel[0] = 0;
+        mpu_data[0].vel[1] = 0;
+        mpu_data[0].REAL_YAW_SET = 0;
+        mpu_data[0].REAL_YAW_MARK = 0;
+
+        can_filter_init();
+        IM_TEST_initialize();
+
+        HAL_TIM_Base_Start_IT(&htim13);
+        HAL_TIM_Base_Start_IT(&htim14);
+        HAL_TIM_Base_Start_IT(&htim11);
+
+
+//      SelfCalibration();
+
+//      HAL_Delay(100);
+
 
 //  mpu_data[0].PITCH_ANGLE_BEG = mpu_data[0].PITCH_ANGLE;
 //  mpu_data[0].YAW_ANGLE_BEG =   mpu_data[0].YAW_ANGLE;
 //  mpu_data[0].ROLL_ANGLE_BEG =  mpu_data[0].ROLL_ANGLE;
-//  
+//
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-	
-	while (1)
+
+        while (1)
   {
     /* USER CODE END WHILE */
 
@@ -244,187 +274,220 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) //宸插純鐢�
+//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) //串口接收中断
 //{
-//			while  (huart->Instance == USART1)
-//		{
-//				USART1_RX_BUF[USART1_RX_STA] = aRxBuffer1[0];
-//				if (USART1_RX_STA == 0 && USART1_RX_BUF[USART1_RX_STA] != 0x0F) 	
-//				{			
-//					HAL_UART_Receive_DMA(&huart1,aRxBuffer1,1);	
-//					break; //
-//				}
-//				USART1_RX_STA++;
-//			HAL_UART_Receive_DMA(&huart1,aRxBuffer1,1);
-//			if (USART1_RX_STA > 100) USART1_RX_STA = 0;  //
-//			if (USART1_RX_BUF[0] == 0x0F && USART1_RX_BUF[7] == 0xAA && USART1_RX_STA == 8)	//妫€娴嬪寘澶村寘灏句互鍙婃暟鎹寘闀垮害
-//			{
-//				DATARELOAD(USART1_RX_BUF);
-//				receivefactor[1]=1;
-//				USART1_RX_STA = 0;
-//			}
-//			else if(!(USART1_RX_BUF[0] == 0x0F && USART1_RX_BUF[7] == 0xAA) && USART1_RX_STA == 8){
-//				for(int i=0;i<8;i++)
-//					USART1_RX_BUF[i] = 0;
-//				USART1_RX_STA = 0;
-//			}
-//			break;
-//		}
+//                      while  (huart->Instance == USART1)
+//              {
+//                              USART1_RX_BUF[USART1_RX_STA] = aRxBuffer1[0];
+//                              if (USART1_RX_STA == 0 && USART1_RX_BUF[USART1_RX_STA] != 0x0F)
+//                              {
+//                                      HAL_UART_Receive_DMA(&huart1,aRxBuffer1,1);
+//                                      break; //
+//                              }
+//                              USART1_RX_STA++;
+//                      HAL_UART_Receive_DMA(&huart1,aRxBuffer1,1);
+//                      if (USART1_RX_STA > 100) USART1_RX_STA = 0;  //
+//                      if (USART1_RX_BUF[0] == 0x0F && USART1_RX_BUF[7] == 0xAA && USART1_RX_STA == 8)
+//                      {
+//                              DATARELOAD(USART1_RX_BUF);
+//                              receivefactor[1]=1;
+//                              USART1_RX_STA = 0;
+//                      }
+//                      else if(!(USART1_RX_BUF[0] == 0x0F && USART1_RX_BUF[7] == 0xAA) && USART1_RX_STA == 8){
+//                              for(int i=0;i<8;i++)
+//                                      USART1_RX_BUF[i] = 0;
+//                              USART1_RX_STA = 0;
+//                      }
+//                      break;
+//              }
 //}
 
-//鎺ユ敹鍑芥暟v2 0602鏇存柊鍚庝笉鍐嶄娇鐢�
-//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
-//	if(huart->Instance == USART1){
-//		if(0x0F==rcv_buf[0]&&0xAA==rcv_buf[7]){
-//			DATARELOAD(rcv_buf);
-//			if(rcv_err>0) rcv_err --;
-//		}
-//		for(int i=0;i<8;i++){
-//			rcv_buf[i]=0;
-//		}
-//	}
-//}
-
-//0602鏇存柊 DMA+绌洪棽涓柇
+//DMA+空闲中断接收
 void Rcv_IdleCallback(void){
-	/* 鍒ゆ柇绌洪棽涓柇鍙戠敓 */
-	if(__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) == SET){
-		/* 娓呴櫎绌洪棽涓柇鏍囧織浣嶏紝鏆傚仠涓插彛DMA浼犺緭 */
-		__HAL_UART_CLEAR_IDLEFLAG(&huart1);
-		HAL_UART_DMAStop(&huart1);
-		/* 鎺ユ敹瀹屾垚鏍囧織浣� */
-		rcv_flag = 1;
-	}
+        /* 判断是否为空闲中断 */
+        if(__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) == SET){
+                /* 清除空闲中断标志并停止 DMA */
+                __HAL_UART_CLEAR_IDLEFLAG(&huart1);
+                HAL_UART_DMAStop(&huart1);
+                /* 标记收到一帧 */
+                rcv_flag = 1;
+        }
 }
 
 int Rcv_DealData(void){
-	if(1==rcv_flag){
-		/* 鏁版嵁澶勭悊 */
-		if(0x0F==rcv_buf[0]&&0xAA==rcv_buf[7]){
-			DATARELOAD(rcv_buf);
-		}else if(0xBB==rcv_buf[0]&&0xCC==rcv_buf[7]){
-			HAL_GPIO_WritePin(RST_CTRL_GPIO_Port,RST_CTRL_Pin,GPIO_PIN_SET);
-			HAL_Delay(500);
-			HAL_GPIO_WritePin(RST_CTRL_GPIO_Port,RST_CTRL_Pin,GPIO_PIN_RESET);
-			DATARELOAD(rcv_buf);
-		}
-		for(int i=0;i<8;i++){
-			rcv_buf[i]=0;
-		}
-		/* 鎭㈠鏍囧織浣� */
-		rcv_flag = 0;
-		/* 鍐嶆鍙戣捣涓嬩竴娆＄殑涓插彛DMA鎺ユ敹 */
-		HAL_UART_Receive_DMA(&huart1, rcv_buf, 8);
-		return 0;
-	}else{
-		return -1;
-	}
+        if(1==rcv_flag){
+                /* 处理数据 */
+                if(0x0F==rcv_buf[0]&&0xAA==rcv_buf[7]){
+                        DATARELOAD(rcv_buf);
+                }else if(0xBB==rcv_buf[0]&&0xCC==rcv_buf[7]){
+                        HAL_GPIO_WritePin(RST_CTRL_GPIO_Port,RST_CTRL_Pin,GPIO_PIN_SET);
+                        HAL_Delay(500);
+                        HAL_GPIO_WritePin(RST_CTRL_GPIO_Port,RST_CTRL_Pin,GPIO_PIN_RESET);
+                        DATARELOAD(rcv_buf);
+                }
+                for(int i=0;i<8;i++){
+                        rcv_buf[i]=0;
+                }
+                /* 重新打开 DMA 接收 */
+                rcv_flag = 0;
+                HAL_UART_Receive_DMA(&huart1, rcv_buf, 8);
+                return 0;
+        }else{
+                return -1;
+        }
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim == (&htim14)){
-			//if(rcv_err>0){
-      //ClearUARTErrors(USART1);//清除串口错误标志（0602更新后不再使用）
-			//}
-			
+                        //if(rcv_err>0){
+      //ClearUARTErrors(USART1);//清除串口错误标志，目前不再使用
+                        //}
+
     }
-		
-		if (htim == (&htim13)){
-//			arm_fir_f32_lp();
-			
-		 }
-		 
-		 if (htim == (&htim11)){
-			
-			 if(mpu_data[0].cali == 1){
-//					rtU.X_ACCIN  = mpu_data[0].acc_cali[0];
-//					rtU.Y_ACCIN  = mpu_data[0].acc_cali[1];
-				 
-					if(times >= 500){
-						
-						add++;
-						AS5048_getREGValue(1);
-					//	HAL_Delay(1);
-						AS5048_dataUpdate(1);	
-				//		HAL_Delay(1);
-						AS5048_getREGValue(2);
-				//		HAL_Delay(1);
-						AS5048_dataUpdate(2);	
-				//		HAL_Delay(1);
-						
-						mpu_data[0].REAL_YAW = mpu_data[0].YAW_ANGLE;// - mpu_data[0].REAL_YAW_SET + mpu_data[0].REAL_YAW_MARK ;
 
-            rtU.W1 = -AS5048s[1].delta_dis;
-            rtU.W2 = AS5048s[0].delta_dis;
+                if (htim == (&htim13)){
+//                      arm_fir_f32_lp();
+
+                 }
+
+                 if (htim == (&htim11)){
+
+                         odom_isr_tick++;
+
+                         if(mpu_data[0].cali == 1){
+//                                      rtU.X_ACCIN  = mpu_data[0].acc_cali[0];
+//                                      rtU.Y_ACCIN  = mpu_data[0].acc_cali[1];
+
+                                        if(times >= 500){
+
+                                                add++;
+                                                AS5048_getREGValue(1);
+                                                AS5048_dataUpdate(1);
+                                                AS5048_getREGValue(2);
+                                                AS5048_dataUpdate(2);
+
+                                                mpu_data[0].REAL_YAW = mpu_data[0].YAW_ANGLE;
+
+            rtU.W1 = -AS5048s[1].delta_dis * AS5048_LEFT_METERS_PER_COUNT;
+            rtU.W2 = AS5048s[0].delta_dis * AS5048_RIGHT_METERS_PER_COUNT;
             rtU.DEG = mpu_data[0].REAL_YAW;
-						
-            mpu_data[0].Y_tt += rtY.YOUT ;//*0.014373;
-            mpu_data[0].X_tt += rtY.XOUT ;//*0.014373;
-						mpu_data[0].REAL_Y = mpu_data[0].Y_tt * 0.014373;
-						mpu_data[0].REAL_X = mpu_data[0].X_tt * 0.014373;
-						// x y yaw
-						
-						Rcv_DealData();
-						
-						if(add >= 50){
-//							if(1==rst_temp){
-//								HAL_GPIO_WritePin(RST_CTRL_GPIO_Port,RST_CTRL_Pin,GPIO_PIN_SET);
-//								HAL_GPIO_WritePin(RST_CTRL_GPIO_Port,RST_CTRL_Pin,GPIO_PIN_RESET);
-//								rst_temp = 0;
-//							}
-							memset(mpu_buff, 0, 64);//bc涓烘彙鎵嬫爣璇�
-							int mpu_len = sprintf(mpu_buff,"bc %f %f %f %f\r\n",mpu_data[0].REAL_X,mpu_data[0].REAL_Y,mpu_data[0].REAL_YAW,mpu_data[0].ROLL_ANGLE);
-							HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&mpu_buff, mpu_len);
-							//printf("%f %f %f\r\n",mpu_data[0].REAL_X,mpu_data[0].REAL_Y,mpu_data[0].REAL_YAW);
-						  add = 0;
-						}
-						
-					}else{
-						
-							AS5048_getREGValue(1);
-						//	HAL_Delay(1);
-							AS5048_dataUpdate(1);	
-					//		HAL_Delay(1);
-							AS5048_getREGValue(2);
-					//		HAL_Delay(1);
-							AS5048_dataUpdate(2);
-					  mpu_data[0].vel[0] = 0;
-				    mpu_data[0].vel[1] = 0;
-						times ++ ;
-					}
 
-				IM_TEST_step();
-			 			 
-		 }
-		}
+            mpu_data[0].Y_tt += rtY.YOUT * IM_TEST_ODOM_OUTPUT_SCALE;
+            mpu_data[0].X_tt += rtY.XOUT * IM_TEST_ODOM_OUTPUT_SCALE;
+                                                mpu_data[0].REAL_Y = mpu_data[0].Y_tt;
+                                                mpu_data[0].REAL_X = mpu_data[0].X_tt;
+
+                                                /* 累积世界系增量用于速度计算 */
+                                                odom_dx_world_acc += rtY.XOUT * IM_TEST_ODOM_OUTPUT_SCALE;
+                                                odom_dy_world_acc += rtY.YOUT * IM_TEST_ODOM_OUTPUT_SCALE;
+                                                odom_vel_ticks++;
+
+                                                Rcv_DealData();
+
+#if ODOM_BINARY_MODE
+                                                if(add >= ODOM_OUTPUT_TICKS){
+                                                        /* 连续 yaw (rad) */
+                                                        float yaw_cont = odom_yaw_unwrap(&g_yaw_unwrap, mpu_data[0].YAW_ANGLE);
+
+                                                        /* 计算 body-frame 速度 */
+                                                        float dt = (float)odom_vel_ticks * (float)ODOM_ISR_PERIOD_US * 1e-6f;
+                                                        float vx_world = 0.0f, vy_world = 0.0f;
+                                                        if(dt > 0.0f){
+                                                            vx_world = odom_dx_world_acc / dt;
+                                                            vy_world = odom_dy_world_acc / dt;
+                                                        }
+                                                        /* 旋转到 body frame */
+                                                        float cos_yaw = arm_cos_f32(yaw_cont);
+                                                        float sin_yaw = arm_sin_f32(yaw_cont);
+                                                        float vx_body =  vx_world * cos_yaw + vy_world * sin_yaw;
+                                                        float vy_body = -vx_world * sin_yaw + vy_world * cos_yaw;
+                                                        float wz = mpu_data[0].gyro[2]; /* IMU gyro Z, rad/s */
+
+                                                        /* 时间戳 */
+                                                        uint64_t t_us = odom_isr_tick * (uint64_t)ODOM_ISR_PERIOD_US;
+
+                                                        /* 状态位 */
+                                                        uint16_t status = ODOM_STATUS_ENC_VALID | ODOM_STATUS_IMU_VALID
+                                                                        | ODOM_STATUS_YAW_VALID | ODOM_STATUS_POS_VALID
+                                                                        | ODOM_STATUS_VEL_VALID;
+
+                                                        /* 打包 ODOM_STATE */
+                                                        OdomStatePayload_t payload;
+                                                        payload.t_sample_us = t_us;
+                                                        payload.x = mpu_data[0].REAL_X;
+                                                        payload.y = mpu_data[0].REAL_Y;
+                                                        payload.yaw = yaw_cont;
+                                                        payload.vx = vx_body;
+                                                        payload.vy = vy_body;
+                                                        payload.wz = wz;
+                                                        payload.status_bits = status;
+                                                        payload.quality = ODOM_QUALITY_NORMAL;
+                                                        payload.reserved = 0;
+
+                                                        uint16_t frame_len = odom_pack_state(odom_frame_buf, odom_seq++, &payload);
+                                                        HAL_UART_Transmit_DMA(&huart1, odom_frame_buf, frame_len);
+
+                                                        /* 重置累积器 */
+                                                        odom_dx_world_acc = 0.0f;
+                                                        odom_dy_world_acc = 0.0f;
+                                                        odom_vel_ticks = 0;
+                                                        add = 0;
+                                                }
+#else
+                                                if(add >= 50){
+                                                        float enc_left_total_m = -AS5048s[1].total_angle * AS5048_LEFT_METERS_PER_COUNT;
+                                                        float enc_right_total_m = AS5048s[0].total_angle * AS5048_RIGHT_METERS_PER_COUNT;
+                                                        float enc_avg_total_m = 0.5f * (enc_left_total_m + enc_right_total_m);
+                                                        memset(mpu_buff, 0, sizeof(mpu_buff));
+                                                        int mpu_len = snprintf(mpu_buff, sizeof(mpu_buff), "%f,%f,%f,%f,%f,%f,%f,%ld,%ld\r\n", mpu_data[0].REAL_X, mpu_data[0].REAL_Y, mpu_data[0].REAL_YAW, mpu_data[0].ROLL_ANGLE, enc_left_total_m, enc_right_total_m, enc_avg_total_m, (long)AS5048s[1].total_angle, (long)AS5048s[0].total_angle);
+                                                        HAL_UART_Transmit_DMA(&huart1, (uint8_t *)&mpu_buff, mpu_len);
+                                                        add = 0;
+                                                }
+#endif
+
+                                        }else{
+
+                                                        AS5048_getREGValue(1);
+                                                        AS5048_dataUpdate(1);
+                                                        AS5048_getREGValue(2);
+                                                        AS5048_dataUpdate(2);
+                                          mpu_data[0].vel[0] = 0;
+                                    mpu_data[0].vel[1] = 0;
+                                                times ++ ;
+                                        }
+
+                                IM_TEST_step();
+
+                 }
+                }
 }
 
 void ClearUARTErrors(USART_TypeDef *USARTx) {
-    // 娓呴櫎濂囧伓鏍￠獙閿欒
+    // 清除奇偶校验错误
     if (USARTx->SR & USART_SR_PE) {
         (void)USARTx->DR;
     }
-    // 娓呴櫎甯ч敊璇�
+    // 清除帧错误
     if (USARTx->SR & USART_SR_FE) {
         (void)USARTx->DR;
     }
-    // 娓呴櫎 noise error
+    // 清除噪声错误
     if (USARTx->SR & USART_SR_NE) {
         (void)USARTx->DR;
     }
-    // 娓呴櫎 overrun error
+    // 清除溢出错误
     if (USARTx->SR & USART_SR_ORE) {
         (void)USARTx->DR;
     }
-    // 閲嶆柊浣胯兘涓插彛
+    // 重新使能串口
     USARTx->CR1 |= USART_CR1_UE;
-    // 閲嶆柊浣胯兘閿欒涓柇
+    // 重新使能错误中断
     USARTx->CR3 |= USART_CR3_EIE;
-    // 閲嶆柊浣胯兘鎺ユ敹瓒呰繃FIFO闃堝€间腑鏂�
+    // 重新使能接收 FIFO 阈值中断
     USARTx->CR3 |= USART_CR3_RXFTIE;
-		// 閲嶆柊鎵撳紑涓插彛鎺ユ敹
-		HAL_UART_Receive_DMA(&huart1,rcv_buf,8);
+                // 重新打开 DMA 接收
+                HAL_UART_Receive_DMA(&huart1,rcv_buf,8);
 }
 
 
@@ -461,3 +524,9 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+
+
+
+
+
+

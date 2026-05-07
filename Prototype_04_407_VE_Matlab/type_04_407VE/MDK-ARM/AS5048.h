@@ -4,6 +4,7 @@
 #include "main.h"
 
 #define AS5048_NUMBER 2  
+#define AS5048_RAW_CALIBRATION_MODE 1
 
 
 
@@ -44,6 +45,8 @@ typedef struct {
 	int    total_angle;
 	int    cirle;
 	int    delta_dis;
+	int    diff_hist[3];
+	uint8_t motion_state;
 
 } AS5048;
 

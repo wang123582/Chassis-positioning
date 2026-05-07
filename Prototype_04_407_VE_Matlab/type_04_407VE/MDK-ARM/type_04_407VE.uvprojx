@@ -416,6 +416,11 @@
               <FilePath>.\AS5048.c</FilePath>
             </File>
             <File>
+              <FileName>odom_protocol.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\odom_protocol.c</FilePath>
+            </File>
+            <File>
               <FileName>main.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/main.c</FilePath>

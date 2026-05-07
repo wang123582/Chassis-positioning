@@ -93,7 +93,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 
 //            break;
             // Little-endian
-						VECTOR_CONVERT();
+						// VECTOR_CONVERT(); // acc_cali result currently unused, skip to reduce CAN ISR latency
 
             mpu_data[0].acc[0] = ((float)(rx_data[1] << 8 | rx_data[0]))* 0.01 -320; //X Y Z
             mpu_data[0].acc[1] = ((float)(rx_data[3] << 8 | rx_data[2]))* 0.01 -320;   
@@ -368,8 +368,8 @@ void DATARELOAD(uint8_t * arr){
 		
 //    mpu_data[0].REAL_X = (arr[1] | arr[2] << 8);
 //    mpu_data[0].REAL_Y = (arr[3] | arr[4] << 8);
-    mpu_data[0].X_tt  = mpu_data[0].REAL_X / 0.014373;
-    mpu_data[0].Y_tt  = mpu_data[0].REAL_Y / 0.014373;
+  mpu_data[0].X_tt  = mpu_data[0].REAL_X;
+  mpu_data[0].Y_tt  = mpu_data[0].REAL_Y;
 
 //     mpu_data[0].REAL_YAW_MARK = (arr[5] | arr[6] << 8);
 //     mpu_data[0].REAL_YAW_SET = mpu_data[0].YAW_ANGLE;
