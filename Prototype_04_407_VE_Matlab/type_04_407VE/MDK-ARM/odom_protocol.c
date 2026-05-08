@@ -89,3 +89,66 @@ uint16_t odom_pack_status(uint8_t *buf, uint8_t seq, const OdomStatusPayload_t *
 {
     return odom_pack_frame(buf, ODOM_MSG_STATUS, seq, payload, ODOM_STATUS_PAYLOAD_LEN);
 }
+
+uint16_t odom_pack_time_sync_resp(uint8_t *buf, uint8_t seq, const OdomTimeSyncRespPayload_t *payload)
+{
+    return odom_pack_frame(buf, ODOM_MSG_TIME_SYNC_RESP, seq, payload, ODOM_TIME_SYNC_RESP_PAYLOAD_LEN);
+}
+
+uint16_t odom_pack_set_origin_ack(uint8_t *buf, uint8_t seq, const OdomSetLocalOriginAckPayload_t *payload)
+{
+    return odom_pack_frame(buf, ODOM_MSG_SET_LOCAL_ORIGIN_ACK, seq, payload, ODOM_SET_ORIGIN_ACK_PAYLOAD_LEN);
+}
+
+/* ---------- 上行帧解析 ---------- *
+ * 协议：AA 55 ver(0x01) type seq payloadLen(LE16) payload CRC16(LE)
+ * CRC 范围: byte[2] .. payload 末尾 (与下行一致)
+ * 在缓冲中找第一个完整合法帧；若 CRC 错或长度不够，返回 0。
+ */
+int odom_parse_upstream(const uint8_t *data, uint16_t len, OdomUpstreamFrame_t *out_frame)
+{
+    if (data == 0 || out_frame == 0) return 0;
+
+    uint16_t i = 0;
+    /* 至少要 9 字节 (overhead) 才能解析出 payload_len */
+    while (i + ODOM_FRAME_OVERHEAD <= len) {
+        if (data[i] != ODOM_FRAME_HEADER_0 || data[i + 1] != ODOM_FRAME_HEADER_1) {
+            i++;
+            continue;
+        }
+        if (data[i + 2] != ODOM_FRAME_VERSION) {
+            i++;
+            continue;
+        }
+        uint8_t  msg_type    = data[i + 3];
+        uint8_t  seq         = data[i + 4];
+        uint16_t payload_len = (uint16_t)data[i + 5] | ((uint16_t)data[i + 6] << 8);
+
+        /* 合法 payload_len 上限 = 上行最长 (16) */
+        if (payload_len > ODOM_SET_ORIGIN_PAYLOAD_LEN) {
+            i++;
+            continue;
+        }
+        uint16_t total = (uint16_t)ODOM_FRAME_OVERHEAD + payload_len;
+        if (i + total > len) {
+            /* 帧不完整，等待更多数据；直接返回 0 */
+            return 0;
+        }
+
+        /* CRC 范围 = ver..payload 末尾 = 1+1+1+2+payload_len = 5+payload_len 字节 */
+        uint16_t crc_calc = odom_crc16(&data[i + 2], (uint16_t)(5 + payload_len));
+        uint16_t crc_recv = (uint16_t)data[i + 7 + payload_len]
+                          | ((uint16_t)data[i + 8 + payload_len] << 8);
+        if (crc_calc != crc_recv) {
+            i++;  /* CRC 错，跳一字节继续找 */
+            continue;
+        }
+
+        out_frame->msg_type    = msg_type;
+        out_frame->seq         = seq;
+        out_frame->payload_len = payload_len;
+        out_frame->payload     = &data[i + 7];
+        return 1;
+    }
+    return 0;
+}

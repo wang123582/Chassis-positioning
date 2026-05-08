@@ -31,6 +31,7 @@
 #include "AS5048.h"
 #include "odom_protocol.h"
 #include <math.h>
+#include <string.h>
 
 extern CAN_HandleTypeDef hcan1;
 extern SPI_HandleTypeDef hspi1;
@@ -112,7 +113,10 @@ UART_HandleTypeDef UART1_Handler;
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-uint8_t rcv_buf[64] = {0};
+/* RX 缓冲扩大到 64 字节以兼容旧 8 字节协议 + 新 0xAA 0x55 上行帧 (最长 25 字节) */
+#define RCV_BUF_SIZE 64
+uint8_t rcv_buf[RCV_BUF_SIZE] = {0};
+volatile uint16_t rcv_len = 0;   /* 实际收到字节数, 由 idle 中断记录 */
 int rcv_err = 3;
 char mpu_buff[220];
 uint16_t rxclear = 0;
@@ -122,6 +126,10 @@ int rst_temp = 0;
 /* ODOM protocol variables */
 static uint8_t odom_seq = 0;
 static uint8_t odom_frame_buf[ODOM_STATE_FRAME_LEN];
+/* 上行响应使用独立缓冲, 避免与下行 ODOM_STATE 共用 */
+static uint8_t odom_resp_buf[ODOM_TIME_SYNC_RESP_FRAME_LEN];
+/* 累计成功归零次数 (event_counter) */
+static uint32_t origin_event_counter = 0;
 static float odom_dx_world_acc = 0.0f;
 static float odom_dy_world_acc = 0.0f;
 static float odom_dyaw_acc = 0.0f;
@@ -184,7 +192,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
         __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
-        HAL_UART_Receive_DMA(&huart1, rcv_buf, 8);
+        HAL_UART_Receive_DMA(&huart1, rcv_buf, RCV_BUF_SIZE);
 
         AS5048_init(1,&hspi1,GPIOA,GPIO_PIN_4);
         AS5048_init(2,&hspi2,GPIOB,GPIO_PIN_12);
@@ -309,28 +317,94 @@ void Rcv_IdleCallback(void){
                 /* 清除空闲中断标志并停止 DMA */
                 __HAL_UART_CLEAR_IDLEFLAG(&huart1);
                 HAL_UART_DMAStop(&huart1);
+                /* 计算实际接收字节数 = 缓冲总长 - 剩余 NDTR */
+                uint16_t remaining = (uint16_t)__HAL_DMA_GET_COUNTER(huart1.hdmarx);
+                rcv_len = (remaining > RCV_BUF_SIZE) ? 0 : (uint16_t)(RCV_BUF_SIZE - remaining);
                 /* 标记收到一帧 */
                 rcv_flag = 1;
         }
 }
 
+/* 等待上一次串口 TX (DMA 或阻塞) 完成, 然后用 DMA 发送响应帧。
+ * 在 TIM11 ISR 里调用, 100Hz 下 ODOM_STATE 占用约 4ms, 用轮询保护避免覆盖。*/
+static void send_upstream_response(const uint8_t *buf, uint16_t len)
+{
+        uint32_t guard = 0;
+        /* gState != HAL_UART_STATE_READY 表示 TX 还在进行 */
+        while(huart1.gState != HAL_UART_STATE_READY){
+                if(++guard > 200000U){ return; }  /* 超时直接放弃, 避免 ISR 死循环 */
+        }
+        HAL_UART_Transmit_DMA(&huart1, (uint8_t *)buf, len);
+}
+
+/* 处理上位机发来的 0xAA 0x55 帧 */
+static void handle_upstream_frame(const OdomUpstreamFrame_t *fr)
+{
+        if(fr->msg_type == ODOM_MSG_TIME_SYNC_REQ){
+                if(fr->payload_len != ODOM_TIME_SYNC_REQ_PAYLOAD_LEN) return;
+                /* 提取 echoed_host_time_us */
+                uint64_t host_us = 0;
+                for(int b = 0; b < 8; b++){
+                        host_us |= ((uint64_t)fr->payload[b]) << (8 * b);
+                }
+                OdomTimeSyncRespPayload_t resp;
+                resp.echoed_host_time_us = host_us;
+                resp.mcu_time_us = odom_isr_tick * (uint64_t)ODOM_ISR_PERIOD_US;
+                uint16_t flen = odom_pack_time_sync_resp(odom_resp_buf, fr->seq, &resp);
+                send_upstream_response(odom_resp_buf, flen);
+        } else if(fr->msg_type == ODOM_MSG_SET_LOCAL_ORIGIN){
+                if(fr->payload_len != ODOM_SET_ORIGIN_PAYLOAD_LEN) return;
+                /* payload: float x, y, yaw + uint8 flags + 3 reserved */
+                float new_x, new_y, new_yaw;
+                memcpy(&new_x,   &fr->payload[0],  4);
+                memcpy(&new_y,   &fr->payload[4],  4);
+                memcpy(&new_yaw, &fr->payload[8],  4);
+                /* uint8_t flags = fr->payload[12]; -- 当前忽略, 全字段重置 */
+
+                /* 应用归零: 直接覆盖累积位姿 */
+                mpu_data[0].X_tt = new_x;
+                mpu_data[0].Y_tt = new_y;
+                mpu_data[0].REAL_X = new_x;
+                mpu_data[0].REAL_Y = new_y;
+                /* 重置连续 yaw: 让下次 unwrap 输出 = new_yaw, prev_deg 锚定到当前角度 */
+                g_yaw_unwrap.continuous_rad = new_yaw;
+                g_yaw_unwrap.prev_deg       = mpu_data[0].YAW_ANGLE;
+                g_yaw_unwrap.initialized    = 1;
+                origin_event_counter++;
+
+                OdomSetLocalOriginAckPayload_t ack;
+                ack.acked_seq     = (uint16_t)fr->seq;
+                ack.result_code   = 0;
+                ack.event_counter = origin_event_counter;
+                uint16_t flen = odom_pack_set_origin_ack(odom_resp_buf, fr->seq, &ack);
+                send_upstream_response(odom_resp_buf, flen);
+        }
+        /* 其它类型忽略 */
+}
+
 int Rcv_DealData(void){
         if(1==rcv_flag){
-                /* 处理数据 */
-                if(0x0F==rcv_buf[0]&&0xAA==rcv_buf[7]){
+                uint16_t len = rcv_len;
+                /* --- 1) 老协议: 8 字节固定包 --- */
+                if(len >= 8 && 0x0F==rcv_buf[0] && 0xAA==rcv_buf[7]){
                         DATARELOAD(rcv_buf);
-                }else if(0xBB==rcv_buf[0]&&0xCC==rcv_buf[7]){
+                }else if(len >= 8 && 0xBB==rcv_buf[0] && 0xCC==rcv_buf[7]){
                         HAL_GPIO_WritePin(RST_CTRL_GPIO_Port,RST_CTRL_Pin,GPIO_PIN_SET);
                         HAL_Delay(500);
                         HAL_GPIO_WritePin(RST_CTRL_GPIO_Port,RST_CTRL_Pin,GPIO_PIN_RESET);
                         DATARELOAD(rcv_buf);
+                }else{
+                        /* --- 2) 新协议: 0xAA 0x55 上行帧 --- */
+                        OdomUpstreamFrame_t fr;
+                        if(odom_parse_upstream(rcv_buf, len, &fr)){
+                                handle_upstream_frame(&fr);
+                        }
                 }
-                for(int i=0;i<8;i++){
-                        rcv_buf[i]=0;
-                }
-                /* 重新打开 DMA 接收 */
+                /* 清缓冲并重启 DMA */
+                memset(rcv_buf, 0, RCV_BUF_SIZE);
+                rcv_len  = 0;
                 rcv_flag = 0;
-                HAL_UART_Receive_DMA(&huart1, rcv_buf, 8);
+                HAL_UART_Receive_DMA(&huart1, rcv_buf, RCV_BUF_SIZE);
                 return 0;
         }else{
                 return -1;
@@ -487,7 +561,7 @@ void ClearUARTErrors(USART_TypeDef *USARTx) {
     // 重新使能接收 FIFO 阈值中断
     USARTx->CR3 |= USART_CR3_RXFTIE;
                 // 重新打开 DMA 接收
-                HAL_UART_Receive_DMA(&huart1,rcv_buf,8);
+                HAL_UART_Receive_DMA(&huart1,rcv_buf,RCV_BUF_SIZE);
 }
 
 
