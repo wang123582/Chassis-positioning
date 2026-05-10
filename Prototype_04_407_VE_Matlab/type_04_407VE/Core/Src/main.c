@@ -135,8 +135,8 @@ static float odom_dy_world_acc = 0.0f;
 static float odom_dyaw_acc = 0.0f;
 static uint16_t odom_vel_ticks = 0;
 
-/* ODOM output rate: ticks between frames (ISR=20kHz, 200 ticks=10ms=100Hz) */
-#define ODOM_OUTPUT_TICKS 200
+/* ODOM output rate: ticks between frames (ISR=20kHz, 100 ticks=5ms=200Hz) */
+#define ODOM_OUTPUT_TICKS 100
 /* ISR period in microseconds */
 #define ODOM_ISR_PERIOD_US 50
 
@@ -326,7 +326,7 @@ void Rcv_IdleCallback(void){
 }
 
 /* 等待上一次串口 TX (DMA 或阻塞) 完成, 然后用 DMA 发送响应帧。
- * 在 TIM11 ISR 里调用, 100Hz 下 ODOM_STATE 占用约 4ms, 用轮询保护避免覆盖。*/
+ * 在 TIM11 ISR 里调用, 200Hz 下 ODOM_STATE 占用约 4ms, 用轮询保护避免覆盖。*/
 static void send_upstream_response(const uint8_t *buf, uint16_t len)
 {
         uint32_t guard = 0;
@@ -447,14 +447,16 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             rtU.W2 = AS5048s[0].delta_dis * AS5048_RIGHT_METERS_PER_COUNT;
             rtU.DEG = mpu_data[0].REAL_YAW;
 
-            mpu_data[0].Y_tt += rtY.YOUT * IM_TEST_ODOM_OUTPUT_SCALE;
-            mpu_data[0].X_tt += rtY.XOUT * IM_TEST_ODOM_OUTPUT_SCALE;
+            /* ROS2 convention: X = forward(+), Y = left(+)
+             * IM_TEST model outputs YOUT as the forward component and XOUT as the lateral component. */
+            mpu_data[0].X_tt += (-rtY.YOUT) * IM_TEST_ODOM_OUTPUT_SCALE;
+            mpu_data[0].Y_tt += rtY.XOUT * IM_TEST_ODOM_OUTPUT_SCALE;
                                                 mpu_data[0].REAL_Y = mpu_data[0].Y_tt;
                                                 mpu_data[0].REAL_X = mpu_data[0].X_tt;
 
-                                                /* 累积世界系增量用于速度计算 */
-                                                odom_dx_world_acc += rtY.XOUT * IM_TEST_ODOM_OUTPUT_SCALE;
-                                                odom_dy_world_acc += rtY.YOUT * IM_TEST_ODOM_OUTPUT_SCALE;
+                                                /* 累积世界系增量用于速度计算 (ROS2: dx=forward, dy=left) */
+                                                odom_dx_world_acc += (-rtY.YOUT) * IM_TEST_ODOM_OUTPUT_SCALE;
+                                                odom_dy_world_acc += rtY.XOUT * IM_TEST_ODOM_OUTPUT_SCALE;
                                                 odom_vel_ticks++;
 
                                                 Rcv_DealData();
