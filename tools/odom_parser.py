@@ -23,7 +23,7 @@ FRAME_HEADER = b"\xAA\x55"
 FRAME_LEN = 45
 ODOM_STATE_TYPE = 0x02
 ODOM_STATE_PAYLOAD_LEN = 36
-DEFAULT_PORT = "COM7"
+DEFAULT_PORT = "COM3"
 DEFAULT_BAUD = 115200
 RAD_TO_DEG = 57.2957795
 
@@ -96,6 +96,7 @@ def parse_odom_frame(frame: bytes) -> dict[str, Any] | None:
         "yaw_valid": bool(status_bits & 0x04),
         "pos_valid": bool(status_bits & 0x08),
         "vel_valid": bool(status_bits & 0x10),
+        "ball_present": bool(status_bits & 0x0100),
         "quality": quality,
         "reserved": reserved,
     }
@@ -111,6 +112,7 @@ def print_frame(res: dict[str, Any], frame_count: int, start_time: float) -> Non
         f"yaw={res['yaw_deg']:+8.2f}°  "
         f"vx={res['vx']:+6.3f}  vy={res['vy']:+6.3f}  "
         f"wz={res['wz']:+6.3f}  "
+        f"ball={'Y' if res['ball_present'] else 'N'}  "
         f"q={res['quality']}  "
         f"({hz:.1f} Hz)"
     )

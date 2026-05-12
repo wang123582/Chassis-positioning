@@ -27,6 +27,8 @@
 | `status_bits` (uint16) | ✅ 可编码 | `cali`, 编码器有效, IMU有效 等 |
 | `quality` (uint8) | ✅ 可简单给 | 0-3 四级 |
 
+补充：当前实现已使用 `status_bits` 的 bit8 作为 `BALL_PRESENT`，当 `PD14` 或 `PD15` 任一检测到高电平时，上位机可通过 `status_bits & 0x0100` 判断“有球来了”。
+
 ### 强烈建议有 (B级)
 
 | 字段 | 能否提供 | 方案 |

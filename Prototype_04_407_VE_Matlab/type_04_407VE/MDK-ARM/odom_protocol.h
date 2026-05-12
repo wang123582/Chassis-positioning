@@ -41,6 +41,12 @@
 /* 上位机最长一帧 = SET_LOCAL_ORIGIN = 25 字节 */
 #define ODOM_UPSTREAM_MAX_FRAME_LEN      (ODOM_FRAME_OVERHEAD + ODOM_SET_ORIGIN_PAYLOAD_LEN)        /* 25 */
 
+/* ---------- SET_LOCAL_ORIGIN flags ---------- */
+#define ODOM_SET_ORIGIN_FLAG_RESET_XY       (1u << 0)
+#define ODOM_SET_ORIGIN_FLAG_RESET_YAW      (1u << 1)
+#define ODOM_SET_ORIGIN_FLAG_RESET_ENCODER  (1u << 2)
+#define ODOM_SET_ORIGIN_FLAG_RESET_ALL      (ODOM_SET_ORIGIN_FLAG_RESET_XY | ODOM_SET_ORIGIN_FLAG_RESET_YAW | ODOM_SET_ORIGIN_FLAG_RESET_ENCODER)
+
 /* ---------- status_bits 定义 ---------- */
 #define ODOM_STATUS_ENC_VALID    (1u << 0)
 #define ODOM_STATUS_IMU_VALID    (1u << 1)
@@ -50,6 +56,7 @@
 #define ODOM_STATUS_RELOCATE     (1u << 5)
 #define ODOM_STATUS_TIME_SYNC    (1u << 6)
 #define ODOM_STATUS_DEGRADED     (1u << 7)
+#define ODOM_STATUS_BALL_PRESENT (1u << 8)
 
 /* ---------- quality 等级 ---------- */
 #define ODOM_QUALITY_UNAVAIL  0
@@ -103,7 +110,7 @@ typedef struct {
     float    x;
     float    y;
     float    yaw;
-    uint8_t  flags;        /* bit0=reset_xy, bit1=reset_yaw, 0 时上位机一般会发 0 表示重置全部 */
+    uint8_t  flags;        /* bit0=reset_xy, bit1=reset_yaw, bit2=reset_encoder; 0 兼容旧行为 = reset_all */
     uint8_t  reserved[3];
 } OdomSetLocalOriginPayload_t;
 

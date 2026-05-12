@@ -281,34 +281,6 @@ void SystemClock_Config(void)
   }
 }
 
-/* USER CODE BEGIN 4 */
-//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) //串口接收中断
-//{
-//                      while  (huart->Instance == USART1)
-//              {
-//                              USART1_RX_BUF[USART1_RX_STA] = aRxBuffer1[0];
-//                              if (USART1_RX_STA == 0 && USART1_RX_BUF[USART1_RX_STA] != 0x0F)
-//                              {
-//                                      HAL_UART_Receive_DMA(&huart1,aRxBuffer1,1);
-//                                      break; //
-//                              }
-//                              USART1_RX_STA++;
-//                      HAL_UART_Receive_DMA(&huart1,aRxBuffer1,1);
-//                      if (USART1_RX_STA > 100) USART1_RX_STA = 0;  //
-//                      if (USART1_RX_BUF[0] == 0x0F && USART1_RX_BUF[7] == 0xAA && USART1_RX_STA == 8)
-//                      {
-//                              DATARELOAD(USART1_RX_BUF);
-//                              receivefactor[1]=1;
-//                              USART1_RX_STA = 0;
-//                      }
-//                      else if(!(USART1_RX_BUF[0] == 0x0F && USART1_RX_BUF[7] == 0xAA) && USART1_RX_STA == 8){
-//                              for(int i=0;i<8;i++)
-//                                      USART1_RX_BUF[i] = 0;
-//                              USART1_RX_STA = 0;
-//                      }
-//                      break;
-//              }
-//}
 
 //DMA+空闲中断接收
 void Rcv_IdleCallback(void){
@@ -337,6 +309,40 @@ static void send_upstream_response(const uint8_t *buf, uint16_t len)
         HAL_UART_Transmit_DMA(&huart1, (uint8_t *)buf, len);
 }
 
+static void reset_odom_runtime_accumulators(void)
+{
+        odom_dx_world_acc = 0.0f;
+        odom_dy_world_acc = 0.0f;
+        odom_dyaw_acc = 0.0f;
+        odom_vel_ticks = 0;
+        mpu_data[0].vel[0] = 0.0;
+        mpu_data[0].vel[1] = 0.0;
+        mpu_data[0].vel[2] = 0.0;
+}
+
+static void reset_encoder_accumulators(void)
+{
+        int idx;
+        for(idx = 0; idx < AS5048_NUMBER; idx++){
+                AS5048s[idx].total_angle = 0;
+                AS5048s[idx].cirle = 0;
+                AS5048s[idx].delta_dis = 0;
+                AS5048s[idx].last_angle = AS5048s[idx].angle;
+                AS5048s[idx].diff_hist[0] = 0;
+                AS5048s[idx].diff_hist[1] = 0;
+                AS5048s[idx].diff_hist[2] = 0;
+                AS5048s[idx].motion_state = 0;
+        }
+}
+
+static uint8_t is_ball_present(void)
+{
+        if(HAL_GPIO_ReadPin(BALL_DETECT_GPIO_Port, BALL_DETECT1_Pin) == GPIO_PIN_SET){
+                return 1U;
+        }
+        return (HAL_GPIO_ReadPin(BALL_DETECT_GPIO_Port, BALL_DETECT2_Pin) == GPIO_PIN_SET) ? 1U : 0U;
+}
+
 /* 处理上位机发来的 0xAA 0x55 帧 */
 static void handle_upstream_frame(const OdomUpstreamFrame_t *fr)
 {
@@ -356,20 +362,35 @@ static void handle_upstream_frame(const OdomUpstreamFrame_t *fr)
                 if(fr->payload_len != ODOM_SET_ORIGIN_PAYLOAD_LEN) return;
                 /* payload: float x, y, yaw + uint8 flags + 3 reserved */
                 float new_x, new_y, new_yaw;
+                uint8_t flags;
                 memcpy(&new_x,   &fr->payload[0],  4);
                 memcpy(&new_y,   &fr->payload[4],  4);
                 memcpy(&new_yaw, &fr->payload[8],  4);
-                /* uint8_t flags = fr->payload[12]; -- 当前忽略, 全字段重置 */
+                flags = fr->payload[12];
+                if(flags == 0U){
+                        flags = ODOM_SET_ORIGIN_FLAG_RESET_ALL; /* 兼容旧版上位机: 0 表示整包归零 */
+                }
 
-                /* 应用归零: 直接覆盖累积位姿 */
-                mpu_data[0].X_tt = new_x;
-                mpu_data[0].Y_tt = new_y;
-                mpu_data[0].REAL_X = new_x;
-                mpu_data[0].REAL_Y = new_y;
-                /* 重置连续 yaw: 让下次 unwrap 输出 = new_yaw, prev_deg 锚定到当前角度 */
-                g_yaw_unwrap.continuous_rad = new_yaw;
-                g_yaw_unwrap.prev_deg       = mpu_data[0].YAW_ANGLE;
-                g_yaw_unwrap.initialized    = 1;
+                if((flags & ODOM_SET_ORIGIN_FLAG_RESET_XY) != 0U){
+                        /* 应用 XY 原点重置 */
+                        mpu_data[0].X_tt = new_x;
+                        mpu_data[0].Y_tt = new_y;
+                        mpu_data[0].REAL_X = new_x;
+                        mpu_data[0].REAL_Y = new_y;
+                }
+
+                if((flags & ODOM_SET_ORIGIN_FLAG_RESET_YAW) != 0U){
+                        /* 重置连续 yaw: 让下次 unwrap 输出 = new_yaw, prev_deg 锚定到当前角度 */
+                        g_yaw_unwrap.continuous_rad = new_yaw;
+                        g_yaw_unwrap.prev_deg       = mpu_data[0].YAW_ANGLE;
+                        g_yaw_unwrap.initialized    = 1;
+                }
+
+                if((flags & ODOM_SET_ORIGIN_FLAG_RESET_ENCODER) != 0U){
+                        reset_encoder_accumulators();
+                }
+
+                reset_odom_runtime_accumulators();
                 origin_event_counter++;
 
                 OdomSetLocalOriginAckPayload_t ack;
@@ -487,6 +508,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
                                                         uint16_t status = ODOM_STATUS_ENC_VALID | ODOM_STATUS_IMU_VALID
                                                                         | ODOM_STATUS_YAW_VALID | ODOM_STATUS_POS_VALID
                                                                         | ODOM_STATUS_VEL_VALID;
+                                                                                                                if(is_ball_present() != 0U){
+                                                                                                                        status |= ODOM_STATUS_BALL_PRESENT;
+                                                                                                                }
 
                                                         /* 打包 ODOM_STATE */
                                                         OdomStatePayload_t payload;

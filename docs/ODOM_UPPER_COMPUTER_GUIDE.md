@@ -75,8 +75,11 @@
 | 5 | RELOCATE | 重定位中（预留） |
 | 6 | TIME_SYNC | 时间已同步（预留） |
 | 7 | DEGRADED | 降级运行 |
+| 8 | BALL_PRESENT | `PD14` 或 `PD15` 任一检测到高电平，表示来球信号有效 |
 
 正常工作时 status_bits = 0x001F（低5位全1）。
+
+若 `PD14` 或 `PD15` 任一为高电平，则 `status_bits` 会额外带上 `0x0100`；例如正常运行且检测到球时，状态位为 `0x011F`。
 
 ### 质量等级 (quality)
 

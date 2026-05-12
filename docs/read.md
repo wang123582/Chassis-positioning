@@ -8,7 +8,14 @@ MDK-ARM/odom_protocol.c	实现两个 pack 函数 + odom_parse_upstream 扫描器
 Core/Src/main.c	RX DMA 缓冲 8 → 64 字节；Rcv_IdleCallback 用 NDTR 记录实际长度；Rcv_DealData 三路分发（旧 8 字节协议 / 0xBB 0xCC 复位 / 新 0xAA 0x55 帧）；新增 handle_upstream_frame + send_upstream_response（轮询等待 TX 空闲再 DMA 发送）
 0x30 SET_LOCAL_ORIGIN 处理逻辑
 
-1. 解 payload: float x, y, yaw2. mpu_data[0].X_tt = x; Y_tt = y; REAL_X/Y 同步覆盖3. g_yaw_unwrap.continuous_rad = yaw   g_yaw_unwrap.prev_deg = mpu_data[0].YAW_ANGLE  ← 锚定当前角度避免 unwrap 跳变4. 回 0x31 ACK (acked_seq, result_code=0, event_counter)
+1. 解 payload: `float x, y, yaw + uint8 flags + 3 reserved`
+2. `flags bit0=reset_xy, bit1=reset_yaw, bit2=reset_encoder`
+3. 为兼容旧版上位机，`flags=0` 时 MCU 按 `reset_xy + reset_yaw + reset_encoder` 全部执行
+4. `reset_xy`：覆盖 `mpu_data[0].X_tt / Y_tt / REAL_X / REAL_Y`
+5. `reset_yaw`：重置 `g_yaw_unwrap.continuous_rad = yaw`，并用当前 `YAW_ANGLE` 锚定 `prev_deg` 避免 unwrap 跳变
+6. `reset_encoder`：清零 `AS5048s[].total_angle / delta_dis / cirle`，并把 `last_angle` 锚到当前 `angle`
+7. 无论哪种归零，都会清空 odom 运行时积分缓存 `odom_dx_world_acc / odom_dy_world_acc / odom_vel_ticks`
+8. 回 `0x31 ACK (acked_seq, result_code=0, event_counter)`
 0x20 TIME_SYNC_REQ 处理
 
 1. 取 echoed_host_time_us2. 用 odom_isr_tick * 50us 作为 mcu_time_us3. 回 0x21 TIME_SYNC_RESP
