@@ -41,6 +41,7 @@ typedef struct tag_RTM RT_MODEL;
 /* Block signals and states (default storage) for system '<S6>/For Each Subsystem' */
 typedef struct {
   real32_T VariableIntegerDelay_DSTATE[4096];/* '<S7>/Variable Integer Delay' */
+  uint32_T ring_head;                  /* ring buffer write index */
 } DW_CoreSubsys;
 
 /* Block signals and states (default storage) for system '<S6>/For Each Subsystem' */
