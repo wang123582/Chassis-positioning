@@ -262,39 +262,39 @@ static void ForEachSubsystem(int32_T NumIters, const real32_T *rtu_In1, const
 {
   /* local scratch DWork variables */
   int32_T ForEach_itr;
-  int_T idxDelay;
 
   /* Outputs for Iterator SubSystem: '<S6>/For Each Subsystem' incorporates:
    *  ForEach: '<S7>/For Each'
    */
   for (ForEach_itr = 0; ForEach_itr < NumIters; ForEach_itr++) {
-    /* Delay: '<S7>/Variable Integer Delay' */
+    /* Delay: '<S7>/Variable Integer Delay' — ring buffer read */
     if ((rtu_In2[ForEach_itr] < 1.0F) || rtIsNaNF(rtu_In2[ForEach_itr])) {
       /* ForEachSliceAssignment generated from: '<S7>/Out1' */
       rty_Out1[ForEach_itr] = rtu_In1[ForEach_itr];
     } else {
       uint32_T tmp;
+      uint32_T read_idx;
       if (rtu_In2[ForEach_itr] > 4096.0F) {
         tmp = 4096U;
       } else {
         tmp = (uint32_T)rtu_In2[ForEach_itr];
       }
 
+      /* Ring buffer: read from (head - delay) & mask */
+      read_idx = (localDW[ForEach_itr].CoreSubsys.ring_head + 4096U - tmp) & 0xFFFU;
+
       /* ForEachSliceAssignment generated from: '<S7>/Out1' */
       rty_Out1[ForEach_itr] = localDW[ForEach_itr].
-        CoreSubsys.VariableIntegerDelay_DSTATE[4096U - tmp];
+        CoreSubsys.VariableIntegerDelay_DSTATE[read_idx];
     }
 
     /* End of Delay: '<S7>/Variable Integer Delay' */
 
-    /* Update for Delay: '<S7>/Variable Integer Delay' */
-    for (idxDelay = 0; idxDelay < 4095; idxDelay++) {
-      localDW[ForEach_itr].CoreSubsys.VariableIntegerDelay_DSTATE[idxDelay] =
-        localDW[ForEach_itr].CoreSubsys.VariableIntegerDelay_DSTATE[idxDelay + 1];
-    }
-
-    localDW[ForEach_itr].CoreSubsys.VariableIntegerDelay_DSTATE[4095] =
-      rtu_In1[ForEach_itr];
+    /* Update for Delay: '<S7>/Variable Integer Delay' — ring buffer write O(1) */
+    localDW[ForEach_itr].CoreSubsys.VariableIntegerDelay_DSTATE[
+      localDW[ForEach_itr].CoreSubsys.ring_head] = rtu_In1[ForEach_itr];
+    localDW[ForEach_itr].CoreSubsys.ring_head =
+      (localDW[ForEach_itr].CoreSubsys.ring_head + 1U) & 0xFFFU;
 
     /* End of Update for Delay: '<S7>/Variable Integer Delay' */
   }
