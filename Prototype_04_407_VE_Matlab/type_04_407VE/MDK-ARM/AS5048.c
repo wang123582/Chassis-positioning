@@ -61,7 +61,7 @@ uint16_t AS5048_Read(const int AS5048_ID, uint16_t registerAddress)
 	cmd[0] = (registerAddress >> 8) & 0xFF;
 
 	HAL_GPIO_WritePin(AS5->GPIOx, AS5->GPIO_Pin, GPIO_PIN_RESET);
-	HAL_SPI_TransmitReceive(AS5->spi_number, cmd, data, 4, 1000);
+	HAL_SPI_TransmitReceive(AS5->spi_number, cmd, data, 2, 1000);
 	HAL_GPIO_WritePin(AS5->GPIOx, AS5->GPIO_Pin, GPIO_PIN_SET);
 
 	return (((data[1] & 0xFF) << 8) | (data[0] & 0xFF)) & ~0xC000;
