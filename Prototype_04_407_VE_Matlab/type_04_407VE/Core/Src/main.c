@@ -512,6 +512,21 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
                                                                                                                         status |= ODOM_STATUS_BALL_PRESENT;
                                                                                                                 }
 
+                                                        /* AS5048 encoder diagnostics → status_bits */
+                                                        {
+                                                            uint8_t e1 = AS5048s[0].error_status;
+                                                            uint8_t e2 = AS5048s[1].error_status;
+                                                            if(e1 & AS5048_ERR_SPI_EF)                              status |= ODOM_STATUS_ENC1_SPI_EF;
+                                                            if(e1 & AS5048_ERR_MAG_LOW)                             status |= ODOM_STATUS_ENC1_MAG_LOW;
+                                                            if(e1 & (AS5048_ERR_MAG_HIGH | AS5048_ERR_CORDIC_OVF))  status |= ODOM_STATUS_ENC1_MAG_OVR;
+                                                            if(e2 & AS5048_ERR_SPI_EF)                              status |= ODOM_STATUS_ENC2_SPI_EF;
+                                                            if(e2 & AS5048_ERR_MAG_LOW)                             status |= ODOM_STATUS_ENC2_MAG_LOW;
+                                                            if(e2 & (AS5048_ERR_MAG_HIGH | AS5048_ERR_CORDIC_OVF))  status |= ODOM_STATUS_ENC2_MAG_OVR;
+                                                            if(status & (ODOM_STATUS_ENC1_SPI_EF | ODOM_STATUS_ENC1_MAG_LOW | ODOM_STATUS_ENC1_MAG_OVR
+                                                                       | ODOM_STATUS_ENC2_SPI_EF | ODOM_STATUS_ENC2_MAG_LOW | ODOM_STATUS_ENC2_MAG_OVR))
+                                                                status |= ODOM_STATUS_ENC_DIAG_ERR;
+                                                        }
+
                                                         /* 打包 ODOM_STATE */
                                                         OdomStatePayload_t payload;
                                                         payload.t_sample_us = t_us;
@@ -523,7 +538,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
                                                         payload.wz = wz;
                                                         payload.status_bits = status;
                                                         payload.quality = ODOM_QUALITY_NORMAL;
-                                                        payload.reserved = 0;
+                                                        payload.enc_agc = (uint8_t)((AS5048s[0].agc_value >> 4) << 4)
+                                                                        | (uint8_t)(AS5048s[1].agc_value >> 4);
 
                                                         uint16_t frame_len = odom_pack_state(odom_frame_buf, odom_seq++, &payload);
                                                         HAL_UART_Transmit_DMA(&huart1, odom_frame_buf, frame_len);

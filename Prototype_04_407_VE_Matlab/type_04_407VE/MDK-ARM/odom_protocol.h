@@ -57,6 +57,14 @@
 #define ODOM_STATUS_TIME_SYNC    (1u << 6)
 #define ODOM_STATUS_DEGRADED     (1u << 7)
 #define ODOM_STATUS_BALL_PRESENT (1u << 8)
+/* AS5048 encoder diagnostics (per-sensor, 3 bits each) */
+#define ODOM_STATUS_ENC1_SPI_EF  (1u << 9)   /* encoder 1 SPI communication error */
+#define ODOM_STATUS_ENC1_MAG_LOW (1u << 10)  /* encoder 1 magnetic field too low */
+#define ODOM_STATUS_ENC1_MAG_OVR (1u << 11)  /* encoder 1 magnetic too high or CORDIC overflow */
+#define ODOM_STATUS_ENC2_SPI_EF  (1u << 12)  /* encoder 2 SPI communication error */
+#define ODOM_STATUS_ENC2_MAG_LOW (1u << 13)  /* encoder 2 magnetic field too low */
+#define ODOM_STATUS_ENC2_MAG_OVR (1u << 14)  /* encoder 2 magnetic too high or CORDIC overflow */
+#define ODOM_STATUS_ENC_DIAG_ERR (1u << 15)  /* summary: any encoder diagnostic error */
 
 /* ---------- quality 等级 ---------- */
 #define ODOM_QUALITY_UNAVAIL  0
@@ -74,7 +82,7 @@ typedef struct {
     float    yaw;
     uint16_t status_bits;
     uint8_t  quality;
-    uint8_t  reserved;
+    uint8_t  enc_agc;         /* encoder AGC: high nibble=ENC1(0-15), low nibble=ENC2(0-15) */
 } OdomPosePayload_t;
 
 typedef struct {
@@ -87,7 +95,7 @@ typedef struct {
     float    wz;
     uint16_t status_bits;
     uint8_t  quality;
-    uint8_t  reserved;
+    uint8_t  enc_agc;         /* encoder AGC: high nibble=ENC1(0-15), low nibble=ENC2(0-15) */
 } OdomStatePayload_t;
 
 typedef struct {

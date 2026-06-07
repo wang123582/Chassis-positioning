@@ -48,7 +48,7 @@
 | 28 | float32 | wz | rad/s | 角速度（逆时针为正） |
 | 32 | uint16 | status_bits | — | 状态标志位（见下） |
 | 34 | uint8 | quality | — | 数据质量等级 |
-| 35 | uint8 | reserved | — | 保留（=0） |
+| 35 | uint8 | enc_agc | — | 编码器 AGC（高 4 位 = 编码器1，低 4 位 = 编码器2，各 0~15） |
 
 ### 坐标系约定（ROS2 标准）
 
@@ -75,8 +75,29 @@
 | 5 | RELOCATE | 重定位中（预留） |
 | 6 | TIME_SYNC | 时间已同步（预留） |
 | 7 | DEGRADED | 降级运行 |
+| 8 | BALL_PRESENT | 检测到球（GPIO PD14/PD15） |
+| 9 | ENC1_SPI_EF | 编码器1 SPI 通信错误 |
+| 10 | ENC1_MAG_LOW | 编码器1 磁场过低 |
+| 11 | ENC1_MAG_OVR | 编码器1 磁场过高 / CORDIC 溢出 |
+| 12 | ENC2_SPI_EF | 编码器2 SPI 通信错误 |
+| 13 | ENC2_MAG_LOW | 编码器2 磁场过低 |
+| 14 | ENC2_MAG_OVR | 编码器2 磁场过高 / CORDIC 溢出 |
+| 15 | ENC_DIAG_ERR | 汇总位：任一编码器存在诊断错误 |
 
-正常工作时 status_bits = 0x001F（低5位全1）。
+正常工作时 status_bits = 0x001F（低 5 位全 1，bit 9~15 全 0）。
+上位机可先看 bit 15（ENC_DIAG_ERR）快速判断编码器是否健康，再看 bit 9~14 定位具体故障。
+
+### 编码器诊断 (bit 9~15) 与 AGC 说明
+
+- **SPI_EF**：本次 SPI 通信奇偶校验 / 时钟错误，该次角度不可信（已自动保留上次有效值）。
+- **MAG_LOW**：磁铁离芯片太远或磁性太弱。
+- **MAG_OVR**：磁铁离芯片太近，或磁场严重超限导致 CORDIC 无法计算角度。
+- **enc_agc**（payload 偏移 35）：芯片自动增益，原始范围 0~255，压缩为高/低各 4 位（0~15）。
+  数值居中最佳；持续偏大说明磁场偏弱，可在触发 MAG_LOW 之前提前预警磁铁松动。
+
+> ⚠️ 注意：以上诊断依赖编码器芯片在场并能响应。若编码器**完全未连接**（线路断开），
+> MISO 浮空通常读到 0x0000，此时不会触发任何标志，角度恒为 0、AGC 读为 0。
+> 「未连接」需上位机另行判断（如长时间角度恒定 + AGC 为 0）。
 
 ### 质量等级 (quality)
 
@@ -145,13 +166,24 @@ def parse_odom_state(frame: bytes):
     # 解包 payload
     payload = frame[7:43]
     (t_us, x, y, yaw, vx, vy, wz,
-     status, quality, _) = struct.unpack("<QffffffHBB", payload)
+     status, quality, enc_agc) = struct.unpack("<QffffffHBB", payload)
 
     return {
         "t_us": t_us,
         "x": x, "y": y, "yaw": yaw,
         "vx": vx, "vy": vy, "wz": wz,
-        "status": status, "quality": quality
+        "status": status, "quality": quality,
+        # 编码器诊断（status_bits bit 9~15）
+        "enc_diag_err": bool(status & 0x8000),
+        "enc1_spi_ef":  bool(status & 0x0200),
+        "enc1_mag_low": bool(status & 0x0400),
+        "enc1_mag_ovr": bool(status & 0x0800),
+        "enc2_spi_ef":  bool(status & 0x1000),
+        "enc2_mag_low": bool(status & 0x2000),
+        "enc2_mag_ovr": bool(status & 0x4000),
+        # AGC：高 4 位 = 编码器1，低 4 位 = 编码器2（0~15）
+        "enc1_agc": (enc_agc >> 4) & 0x0F,
+        "enc2_agc": enc_agc & 0x0F,
     }
 ```
 

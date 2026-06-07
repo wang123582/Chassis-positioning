@@ -73,8 +73,21 @@ def parse_odom_frame(frame: bytes) -> dict[str, Any] | None:
         wz,
         status_bits,
         quality,
-        reserved,
+        enc_agc,
     ) = struct.unpack("<QffffffHBB", payload)
+
+    # AS5048 encoder diagnostics from status_bits
+    enc1_spi_ef  = bool(status_bits & 0x0200)
+    enc1_mag_low = bool(status_bits & 0x0400)
+    enc1_mag_ovr = bool(status_bits & 0x0800)
+    enc2_spi_ef  = bool(status_bits & 0x1000)
+    enc2_mag_low = bool(status_bits & 0x2000)
+    enc2_mag_ovr = bool(status_bits & 0x4000)
+    enc_diag_err = bool(status_bits & 0x8000)
+
+    # AGC values: high nibble = ENC1, low nibble = ENC2 (0-15, raw / 16)
+    enc1_agc = (enc_agc >> 4) & 0x0F
+    enc2_agc = enc_agc & 0x0F
 
     return {
         "version": version,
@@ -97,14 +110,41 @@ def parse_odom_frame(frame: bytes) -> dict[str, Any] | None:
         "pos_valid": bool(status_bits & 0x08),
         "vel_valid": bool(status_bits & 0x10),
         "ball_present": bool(status_bits & 0x0100),
+        "enc1_spi_ef": enc1_spi_ef,
+        "enc1_mag_low": enc1_mag_low,
+        "enc1_mag_ovr": enc1_mag_ovr,
+        "enc2_spi_ef": enc2_spi_ef,
+        "enc2_mag_low": enc2_mag_low,
+        "enc2_mag_ovr": enc2_mag_ovr,
+        "enc_diag_err": enc_diag_err,
+        "enc1_agc": enc1_agc,
+        "enc2_agc": enc2_agc,
         "quality": quality,
-        "reserved": reserved,
     }
+
+
+def _enc_diag_str(res: dict[str, Any]) -> str:
+    """Build a compact encoder diagnostics string."""
+    if not res["enc_diag_err"]:
+        return "ENC:OK"
+    parts = []
+    for idx, prefix in ((1, "enc1"), (2, "enc2")):
+        errs = []
+        if res[f"{prefix}_spi_ef"]:
+            errs.append("SPI")
+        if res[f"{prefix}_mag_low"]:
+            errs.append("MAG_L")
+        if res[f"{prefix}_mag_ovr"]:
+            errs.append("MAG_H")
+        if errs:
+            parts.append(f"E{idx}:{'+'.join(errs)}")
+    return " ".join(parts) if parts else "ENC:OK"
 
 
 def print_frame(res: dict[str, Any], frame_count: int, start_time: float) -> None:
     elapsed = time.time() - start_time
     hz = frame_count / elapsed if elapsed > 0 else 0.0
+    diag = _enc_diag_str(res)
     print(
         f"[#{res['seq']:3d}] "
         f"t={res['t_sec']:8.3f}s  "
@@ -114,6 +154,8 @@ def print_frame(res: dict[str, Any], frame_count: int, start_time: float) -> Non
         f"wz={res['wz']:+6.3f}  "
         f"ball={'Y' if res['ball_present'] else 'N'}  "
         f"q={res['quality']}  "
+        f"AGC:{res['enc1_agc']:X}/{res['enc2_agc']:X}  "
+        f"{diag}  "
         f"({hz:.1f} Hz)"
     )
 

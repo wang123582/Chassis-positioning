@@ -11,12 +11,30 @@
 #define SPI_CMD_READ				0x4000 // flag indicating read attempt
 #define SPI_CMD_WRITE				0x8000 // flag indicating write attempt
 #define SPI_NOP							0x0000//B0000000000000000 No operation dummy information
-#define SPI_REG_AGC					0x7ffd // agc register when using SPI 
+#define SPI_REG_AGC					0x7ffd // agc register when using SPI
 #define SPI_REG_MAG					0x7ffe // magnitude register when using SPI
 #define SPI_REG_DATA				0xffff // data register when using SPI
 #define SPI_REG_CLRERR			0x4001 // clear error register when using SPI
 #define SPI_REG_ZEROPOS_HI	0x0016 // zero position register high byte
 #define SPI_REG_ ZEROPOS_LO	0x0017 // zero position register low byte
+
+// AS5048A error flag bit in raw SPI response
+#define AS5048_EF_BIT               0x4000  // bit14: Error Flag
+
+// Diagnostic register bit masks (from SPI_REG_AGC read, 14-bit value)
+#define AS5048_DIAG_COMP_LOW        0x0800  // bit11: magnetic field too low
+#define AS5048_DIAG_COMP_HIGH       0x0400  // bit10: magnetic field too high
+#define AS5048_DIAG_CORDIC_OVF      0x0200  // bit9:  CORDIC overflow
+
+// Error status bit definitions
+#define AS5048_ERR_NONE             0x00
+#define AS5048_ERR_SPI_EF           0x01    // SPI communication error
+#define AS5048_ERR_MAG_LOW          0x02    // magnetic field too low
+#define AS5048_ERR_MAG_HIGH         0x04    // magnetic field too high
+#define AS5048_ERR_CORDIC_OVF       0x08    // CORDIC overflow
+
+// Diagnostic check interval (every N angle reads)
+#define AS5048_DIAG_CHECK_INTERVAL  200
 
 // 锟斤拷锟斤拷酶锟斤拷锟脚夹ｏ拷锟轿伙拷母锟斤拷锟斤拷拇锟斤拷锟斤拷锟饺≈革拷锟�
 #define CMD_ANGLE            0xffff
@@ -28,8 +46,10 @@
 
 void AS5048_init(int AS5048_ID,SPI_HandleTypeDef *spi,GPIO_TypeDef *GPIOx,uint16_t GPIO_Pin);
 uint16_t AS5048_Read(const int AS5048_ID, uint16_t registerAddress);
+uint16_t AS5048_ReadRaw(const int AS5048_ID, uint16_t registerAddress);
 void AS5048_getREGValue(const int AS5048_ID);
 void AS5048_dataUpdate(const int AS5048_ID);
+void AS5048_checkDiagnostics(const int AS5048_ID);
 /**
  * @brief AS5048_STRUCT
  */
@@ -47,6 +67,9 @@ typedef struct {
 	int    delta_dis;
 	int    diff_hist[3];
 	uint8_t motion_state;
+	uint8_t  error_status;    ///< error flags (AS5048_ERR_xxx bitmask)
+	uint16_t diag_counter;    ///< counter for periodic diagnostic check
+	uint8_t  agc_value;       ///< last AGC value (0-255)
 
 } AS5048;
 
